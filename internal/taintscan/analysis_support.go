@@ -713,9 +713,18 @@ func mergeNodeSlices(dst []ast.Node, src []ast.Node) []ast.Node {
 	if len(dst) == 0 {
 		return append([]ast.Node(nil), src...)
 	}
-	out := append([]ast.Node(nil), dst...)
-	out = append(out, src...)
-	return out
+	inSrc := make(map[ast.Node]struct{}, len(src))
+	for _, node := range src {
+		inSrc[node] = struct{}{}
+	}
+	out := make([]ast.Node, 0, len(dst))
+	for _, node := range dst {
+		if _, ok := inSrc[node]; ok {
+			continue
+		}
+		out = append(out, node)
+	}
+	return append(out, src...)
 }
 
 func mergeWeakIdentifierMaps(dst map[string]weakIdentifierHint, src map[string]weakIdentifierHint) map[string]weakIdentifierHint {
