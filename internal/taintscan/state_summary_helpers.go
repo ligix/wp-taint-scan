@@ -2084,16 +2084,20 @@ func extractStoragePathFamilies(node ast.Node, s *analysisState) map[string]orig
 
 func copyExprStructureToStorage(dst map[string]originSet, family string, expr ast.Node, s *analysisState) {
 	resolver := s.engine.localArrayLiteralResolver(s.current)
-	copyExprStructureToStorageWithResolver(dst, family, expr, s, resolver, map[string]struct{}{})
+	copyExprStructureToStorageWithResolver(dst, family, expr, s, resolver, map[string]struct{}{}, map[ast.Node]struct{}{})
 }
 
-func copyExprStructureToStorageWithResolver(dst map[string]originSet, family string, expr ast.Node, s *analysisState, resolver *localArrayLiteralResolver, seen map[string]struct{}) {
+func copyExprStructureToStorageWithResolver(dst map[string]originSet, family string, expr ast.Node, s *analysisState, resolver *localArrayLiteralResolver, seen map[string]struct{}, expanding map[ast.Node]struct{}) {
 	if family == "" {
 		return
 	}
 	if resolved := resolveLocalStructuredExpr(expr, resolver, seen); resolved != nil && resolved != expr {
-		copyExprStructureToStorageWithResolver(dst, family, resolved, s, resolver, seen)
-		return
+		if _, active := expanding[resolved]; !active {
+			expanding[resolved] = struct{}{}
+			copyExprStructureToStorageWithResolver(dst, family, resolved, s, resolver, seen, expanding)
+			delete(expanding, resolved)
+			return
+		}
 	}
 	if src, ok := s.structuralRoot(expr); ok {
 		s.copyStructuralPathsToMap(dst, family, src)
@@ -2112,7 +2116,7 @@ func copyExprStructureToStorageWithResolver(dst map[string]originSet, family str
 				continue
 			}
 			childKey := appendArrayPath(family, item.Key)
-			copyExprStructureToStorageWithResolver(dst, childKey, item.Value, s, resolver, seen)
+			copyExprStructureToStorageWithResolver(dst, childKey, item.Value, s, resolver, seen, expanding)
 			if hasStructuralChildren(dst, childKey) {
 				continue
 			}
@@ -2120,7 +2124,7 @@ func copyExprStructureToStorageWithResolver(dst map[string]originSet, family str
 		}
 	case *ast.ExprFuncCall:
 		if isPropagatingFunc(normalizeName(identifierText(typed.Name))) && len(typed.Args) > 0 {
-			copyExprStructureToStorageWithResolver(dst, family, argValue(typed.Args[0]), s, resolver, seen)
+			copyExprStructureToStorageWithResolver(dst, family, argValue(typed.Args[0]), s, resolver, seen, expanding)
 		}
 	}
 }
