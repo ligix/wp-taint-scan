@@ -1857,12 +1857,17 @@ func storageWriteBucketsFromValueSyntax(root string, node ast.Node, c callable, 
 	return storageWriteBucketsFromValueSyntaxSeen(root, node, c, beforeLine, resolver, map[string]struct{}{})
 }
 
+const maxStorageWriteBucketDepth = 24
+
 func storageWriteBucketsFromValueSyntaxSeen(root string, node ast.Node, c callable, beforeLine int, resolver *localArrayLiteralResolver, seen map[string]struct{}) map[string]struct{} {
 	if root == "" || node == nil {
 		return nil
 	}
 	buckets := map[string]struct{}{root: {}}
-	key := storageWriteBucketsVisitKey(root, node, c, beforeLine)
+	if len(seen) >= maxStorageWriteBucketDepth {
+		return buckets
+	}
+	key := storageWriteBucketsVisitKey(node, c, beforeLine)
 	if _, ok := seen[key]; ok {
 		return buckets
 	}
@@ -1914,8 +1919,8 @@ func storageWriteBucketsFromValueSyntaxSeen(root string, node ast.Node, c callab
 	return buckets
 }
 
-func storageWriteBucketsVisitKey(root string, node ast.Node, c callable, beforeLine int) string {
-	return fmt.Sprintf("%s|%s|%d|%T:%p", c.Key, root, beforeLine, node, node)
+func storageWriteBucketsVisitKey(node ast.Node, c callable, beforeLine int) string {
+	return fmt.Sprintf("%s|%d|%T:%p", c.Key, beforeLine, node, node)
 }
 
 func storagePathRelevanceBucket(path string) string {

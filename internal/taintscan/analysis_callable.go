@@ -1179,6 +1179,7 @@ type analysisState struct {
 	receiverWrites          map[string]originSet
 	receiverStorageLinks    map[string]string
 	structuralStorageLinks  map[string]string
+	structuralAssignRoot    structuralRoot
 	storageWrites           map[string]originSet
 	storagePathWrites       map[string]originSet
 	hasRecordRead           bool

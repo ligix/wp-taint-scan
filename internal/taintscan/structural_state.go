@@ -18,6 +18,9 @@ func (s *analysisState) copyStructuralAssignEffects(target ast.Node, expr ast.No
 		return
 	}
 	s.clearStructuralSubtree(dst)
+	prevAssignRoot := s.structuralAssignRoot
+	s.structuralAssignRoot = dst
+	defer func() { s.structuralAssignRoot = prevAssignRoot }()
 	switch typed := expr.(type) {
 	case *ast.ExprFuncCall:
 		if root, ok := storageReadRootForFuncCall(typed); ok {
@@ -972,15 +975,31 @@ func (s *analysisState) copyStructuralPathsToMap(dst map[string]originSet, dstRo
 	if dstRoot == "" || src.key == "" {
 		return
 	}
-	var maps []map[string]originSet
+	skipPrefix := s.structuralAssignSkipPrefix(dstRoot, src)
 	if src.isStatic {
-		maps = append(maps, s.engine.staticProps, s.staticPropTaint)
-	} else {
-		maps = append(maps, s.propTaint)
+		copyStructuralPathMapWithTransform(dst, s.engine.staticProps, dstRoot, src.key, nil, "")
+		copyStructuralPathMapWithTransform(dst, s.staticPropTaint, dstRoot, src.key, nil, skipPrefix)
+		return
 	}
-	for _, store := range maps {
-		copyStructuralPathMap(dst, store, dstRoot, src.key)
+	copyStructuralPathMapWithTransform(dst, s.propTaint, dstRoot, src.key, nil, skipPrefix)
+}
+
+func (s *analysisState) structuralAssignSkipPrefix(dstRoot string, src structuralRoot) string {
+	active := s.structuralAssignRoot
+	if active.key == "" || active.isStatic != src.isStatic {
+		return ""
 	}
+	if !structuralPathAtOrUnder(dstRoot, active.key) {
+		return ""
+	}
+	if !structuralPathAtOrUnder(active.key, src.key) {
+		return ""
+	}
+	return active.key
+}
+
+func structuralPathAtOrUnder(path string, root string) bool {
+	return path == root || strings.HasPrefix(path, root+"[") || strings.HasPrefix(path, root+".")
 }
 
 func pruneCoveredStructuralRoot(store map[string]originSet, root string) {
@@ -1110,14 +1129,14 @@ func (s *analysisState) destinationStructuralStore(root structuralRoot) map[stri
 }
 
 func copyStructuralPathMap(dst map[string]originSet, src map[string]originSet, dstRoot string, srcRoot string) {
-	copyStructuralPathMapWithTransform(dst, src, dstRoot, srcRoot, nil)
+	copyStructuralPathMapWithTransform(dst, src, dstRoot, srcRoot, nil, "")
 }
 
 func copyPersistentStructuralPathMap(dst map[string]originSet, src map[string]originSet, dstRoot string, srcRoot string) {
-	copyStructuralPathMapWithTransform(dst, src, dstRoot, srcRoot, markPersistentReadOrigins)
+	copyStructuralPathMapWithTransform(dst, src, dstRoot, srcRoot, markPersistentReadOrigins, "")
 }
 
-func copyStructuralPathMapWithTransform(dst map[string]originSet, src map[string]originSet, dstRoot string, srcRoot string, transform func(originSet) originSet) {
+func copyStructuralPathMapWithTransform(dst map[string]originSet, src map[string]originSet, dstRoot string, srcRoot string, transform func(originSet) originSet, skipPrefix string) {
 	if dst == nil || src == nil || dstRoot == "" || srcRoot == "" {
 		return
 	}
@@ -1125,6 +1144,9 @@ func copyStructuralPathMapWithTransform(dst map[string]originSet, src map[string
 		prefixArray := srcRoot + "["
 		prefixProp := srcRoot + "."
 		for key, origins := range src {
+			if skipPrefix != "" && structuralPathAtOrUnder(key, skipPrefix) {
+				continue
+			}
 			if strings.HasPrefix(key, prefixArray) || strings.HasPrefix(key, prefixProp) {
 				dstKey := dstRoot + strings.TrimPrefix(key, srcRoot)
 				if transform != nil {
@@ -1136,6 +1158,9 @@ func copyStructuralPathMapWithTransform(dst map[string]originSet, src map[string
 		return
 	}
 	for key, origins := range src {
+		if skipPrefix != "" && structuralPathAtOrUnder(key, skipPrefix) {
+			continue
+		}
 		remainder, ok := trimStructuralPrefix(key, srcRoot)
 		if !ok {
 			continue
