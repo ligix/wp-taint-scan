@@ -1842,15 +1842,6 @@ func (s *analysisState) instantiateSummaryReturnWithOptions(key string, args []o
 			currentContext,
 		)
 		if receiverRoot == "this" {
-			key := sinkTemplateKey(sinkTemplate{
-				RuleID:             template.RuleID,
-				Message:            template.Message,
-				Sink:               template.Sink,
-				Callable:           s.current.Display,
-				Context:            mergedContext,
-				StoredWriteContext: template.StoredWriteContext,
-				ReceiverPath:       template.ReceiverPath,
-			})
 			next := sinkTemplate{
 				RuleID:             template.RuleID,
 				Message:            template.Message,
@@ -1860,11 +1851,7 @@ func (s *analysisState) instantiateSummaryReturnWithOptions(key string, args []o
 				StoredWriteContext: template.StoredWriteContext,
 				ReceiverPath:       template.ReceiverPath,
 			}
-			if existing, ok := s.receiverSinks[key]; ok {
-				next.Context = mergeFlowContext(existing.Context, next.Context)
-				next.StoredWriteContext = mergeOptionalFlowContext(existing.StoredWriteContext, next.StoredWriteContext)
-			}
-			s.receiverSinks[key] = next
+			s.storeReceiverSink(sinkTemplateKey(next), next)
 		}
 		if receiverRoot != "" {
 			origins := applyStoredWriteContext(s.resolveReceiverPathOrigins(receiverRoot, template.ReceiverPath), template.StoredWriteContext)

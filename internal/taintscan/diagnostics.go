@@ -1,7 +1,6 @@
 package taintscan
 
 import (
-	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
@@ -9,7 +8,6 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-	"sync"
 )
 
 func mergeCountMaps(parts ...map[string]int) map[string]int {
@@ -147,24 +145,12 @@ func hashStrings(parts []string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// fingerprintBufPool pools *bytes.Buffer for fingerprintJSON to avoid repeated
-// growSlice allocations inside json.Marshal. Each corpus case runs in its own
-// goroutine, so the pool is shared across the full parallel corpus run.
-var fingerprintBufPool = sync.Pool{
-	New: func() any { return new(bytes.Buffer) },
-}
-
 func fingerprintJSON(v any) string {
-	buf := fingerprintBufPool.Get().(*bytes.Buffer)
-	buf.Reset()
-	enc := json.NewEncoder(buf)
-	if err := enc.Encode(v); err != nil || buf.Len() == 0 {
-		fingerprintBufPool.Put(buf)
+	h := sha1.New()
+	if err := json.NewEncoder(h).Encode(v); err != nil {
 		return ""
 	}
-	sum := sha1.Sum(buf.Bytes())
-	fingerprintBufPool.Put(buf)
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 type summaryDependencyView struct {

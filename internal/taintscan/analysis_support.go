@@ -308,11 +308,6 @@ func (s *analysisState) addSinkFindings(ruleID string, message string, origins o
 			}
 			s.sourceHits[findingRecordKey(record)] = record
 		case originParam:
-			templates := s.paramSinks[item.paramIdx]
-			if templates == nil {
-				templates = map[string]sinkTemplate{}
-				s.paramSinks[item.paramIdx] = templates
-			}
 			template := sinkTemplate{
 				RuleID:             ruleID,
 				Message:            message,
@@ -322,12 +317,7 @@ func (s *analysisState) addSinkFindings(ruleID string, message string, origins o
 				StoredWriteContext: item.storedWriteContext,
 				ParamPath:          item.paramPath,
 			}
-			key := sinkTemplateKey(template) + "|" + item.paramPath
-			if existing, ok := templates[key]; ok {
-				template.Context = mergeFlowContext(existing.Context, template.Context)
-				template.StoredWriteContext = mergeOptionalFlowContext(existing.StoredWriteContext, template.StoredWriteContext)
-			}
-			templates[key] = template
+			s.storeParamSink(item.paramIdx, sinkTemplateKey(template)+"|"+item.paramPath, template)
 		case originReceiver:
 			template := sinkTemplate{
 				RuleID:             ruleID,
@@ -338,14 +328,52 @@ func (s *analysisState) addSinkFindings(ruleID string, message string, origins o
 				StoredWriteContext: item.storedWriteContext,
 				ReceiverPath:       item.receiverPath,
 			}
-			key := sinkTemplateKey(template)
-			if existing, ok := s.receiverSinks[key]; ok {
-				template.Context = mergeFlowContext(existing.Context, template.Context)
-				template.StoredWriteContext = mergeOptionalFlowContext(existing.StoredWriteContext, template.StoredWriteContext)
-			}
-			s.receiverSinks[key] = template
+			s.storeReceiverSink(sinkTemplateKey(template), template)
 		}
 	}
+}
+
+const maxReceiverSinkEntries = 512
+
+func (s *analysisState) storeReceiverSink(key string, template sinkTemplate) {
+	if existing, ok := s.receiverSinks[key]; ok {
+		template.Context = mergeFlowContext(existing.Context, template.Context)
+		template.StoredWriteContext = mergeOptionalFlowContext(existing.StoredWriteContext, template.StoredWriteContext)
+		s.receiverSinks[key] = template
+		return
+	}
+	if len(s.receiverSinks) >= maxReceiverSinkEntries {
+		return
+	}
+	s.receiverSinks[key] = template
+}
+
+const maxParamSinkEntries = 512
+
+func (s *analysisState) storeParamSink(idx int, key string, template sinkTemplate) {
+	templates := s.paramSinks[idx]
+	if existing, ok := templates[key]; ok {
+		template.Context = mergeFlowContext(existing.Context, template.Context)
+		template.StoredWriteContext = mergeOptionalFlowContext(existing.StoredWriteContext, template.StoredWriteContext)
+		templates[key] = template
+		return
+	}
+	if s.paramSinkEntryCount() >= maxParamSinkEntries {
+		return
+	}
+	if templates == nil {
+		templates = map[string]sinkTemplate{}
+		s.paramSinks[idx] = templates
+	}
+	templates[key] = template
+}
+
+func (s *analysisState) paramSinkEntryCount() int {
+	total := 0
+	for _, items := range s.paramSinks {
+		total += len(items)
+	}
+	return total
 }
 
 func (s *analysisState) addRecordDisclosureFinding(origins originSet, sink Location) {
@@ -754,24 +782,12 @@ func (s *analysisState) mergeFindingsFrom(other analysisState) {
 		s.sourceHits[key] = record
 	}
 	for idx, items := range other.paramSinks {
-		target := s.paramSinks[idx]
-		if target == nil {
-			target = map[string]sinkTemplate{}
-			s.paramSinks[idx] = target
-		}
 		for key, item := range items {
-			if existing, ok := target[key]; ok {
-				item.Context = mergeFlowContext(existing.Context, item.Context)
-			}
-			target[key] = item
+			s.storeParamSink(idx, key, item)
 		}
 	}
 	for key, item := range other.receiverSinks {
-		if existing, ok := s.receiverSinks[key]; ok {
-			item.Context = mergeFlowContext(existing.Context, item.Context)
-			item.StoredWriteContext = mergeOptionalFlowContext(existing.StoredWriteContext, item.StoredWriteContext)
-		}
-		s.receiverSinks[key] = item
+		s.storeReceiverSink(key, item)
 	}
 }
 
